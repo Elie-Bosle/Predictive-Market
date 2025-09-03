@@ -56,7 +56,7 @@ def save_markets_to_json(markets, filename='../polymarket_data.json'):
         # Ouvrir en mode 'w' pour écraser l'ancien fichier s'il existe
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(markets, f, indent=2, ensure_ascii=False)
-        print(f"✅ {len(markets)} marchés sauvegardés dans '{filename}' (ancien fichier écrasé)")
+        print(f"✅ {len(markets)} marchés sauvegardés dans '{filename}'")
         return True
     except Exception as e:
         print(f"❌ Erreur lors de la sauvegarde: {e}")
@@ -82,7 +82,7 @@ def main():
     if markets:
         # Sauvegarder dans un fichier JSON dans le dossier principal
         if save_markets_to_json(markets):
-            print(f"   • Total de marchés ouverts: {len(markets)}")
+            print(f"Total de marchés ouverts: {len(markets)}")
             
             # Convertir en CSV en gardant les noms de colonnes originaux
             # Le fichier CSV sera stocké dans le dossier principal

@@ -1,0 +1,140 @@
+name: Discord notifications (embeds)
+
+"on":
+  push:
+    branches:
+      - "**"   # toutes les branches
+    tags:
+      - "**"   # tous les tags (au cas où tu pushes des tags)
+  create:        # se déclenche à la création d’une branche ou d’un tag
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ensure jq is available
+        run: |
+          jq --version || (sudo apt-get update && sudo apt-get install -y jq)
+
+      # ---------- PUSH ----------
+      - name: Build embed for push
+        if: ${{ github.event_name == 'push' }}
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          E="$GITHUB_EVENT_PATH"
+          REF="$(jq -r .ref "$E")"
+          BRANCH="${REF#refs/heads/}"
+          PUSHER="$(jq -r .pusher.name "$E")"
+          COMPARE="$(jq -r .compare "$E")"
+          REPO_HTML="$(jq -r .repository.html_url "$E")"
+          TS="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          COMMITS="$(jq -r '
+            (.commits // [])[:10]
+            | map("• `\(.id[0:7])` " + ((.message | gsub("\r";"") | split("\n")[0])) + " — **\(.author.name)**\n<\(.url)>")
+            | join("\n\n")
+          ' "$E")"
+          TOTAL="$(jq -r '(.commits // []) | length' "$E")"
+          EXTRA=""
+          if [ "$TOTAL" -gt 10 ]; then EXTRA="\n\n…et $((TOTAL-10)) autre(s) commit(s)"; fi
+          COMMITS="${COMMITS}${EXTRA}"
+
+          jq -n \
+            --arg repo "$REPO" \
+            --arg repo_html "$REPO_HTML" \
+            --arg branch "$BRANCH" \
+            --arg pusher "$PUSHER" \
+            --arg commits "$COMMITS" \
+            --arg compare "$COMPARE" \
+            --arg ts "$TS" \
+            '{
+              username: "GitHub",
+              avatar_url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
+              embeds: [{
+                author: { name: $repo, url: $repo_html },
+                title: ("Push sur `" + $branch + "`"),
+                description: ("par **" + $pusher + "**\n\n" + $commits),
+                url: $compare,
+                color: 5814783,
+                timestamp: $ts,
+                footer: { text: "Compare" }
+              }]
+            }' > body.json
+
+      - name: Send to Discord (push)
+        if: ${{ github.event_name == 'push' }}
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -sS -X POST -H "Content-Type: application/json" -d @body.json "$WEBHOOK"
+
+      # ---------- CREATE ----------
+      - name: Build embed for create
+        if: ${{ github.event_name == 'create' }}
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          E="$GITHUB_EVENT_PATH"
+          REF="$(jq -r .ref "$E")"
+          TYPE="$(jq -r .ref_type "$E")"
+          SENDER="$(jq -r .sender.login "$E")"
+          REPO_HTML="$(jq -r .repository.html_url "$E")"
+          TS="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          if [ "$TYPE" = "branch" ]; then
+            TARGET_URL="${REPO_HTML}/tree/${REF}"
+            TITLE="Nouvelle branche : \`${REF}\`"
+            COLOR=5763719
+          else
+            TARGET_URL="${REPO_HTML}/releases/tag/${REF}"
+            TITLE="Nouveau tag : \`${REF}\`"
+            COLOR=15844367
+          fi
+
+          jq -n \
+            --arg repo "$REPO" \
+            --arg repo_html "$REPO_HTML" \
+            --arg title "$TITLE" \
+            --arg sender "$SENDER" \
+            --arg url "$TARGET_URL" \
+            --arg ts "$TS" \
+            --argjson color "$COLOR" \
+            '{
+              username: "GitHub",
+              avatar_url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
+              embeds: [{
+                author: { name: $repo, url: $repo_html },
+                title: $title,
+                description: ("par **" + $sender + "**"),
+                url: $url,
+                color: $color,
+                timestamp: $ts
+              }]
+            }' > body.json
+
+      - name: Send to Discord (create)
+        if: ${{ github.event_name == 'create' }}
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -sS -X POST -H "Content-Type: application/json" -d @body.json "$WEBHOOK"
+
+      # ---------- MANUAL TEST ----------
+      - name: Manual test embed
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          jq -n '{
+            username: "GitHub",
+            avatar_url: "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
+            embeds: [{
+              title: "Test manuel",
+              description: "Le workflow fonctionne ✅",
+              color: 5814783
+            }]
+          }' > body.json
+          curl -sS -X POST -H "Content-Type: application/json" -d @body.json "$WEBHOOK"
